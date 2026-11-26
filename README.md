@@ -4,7 +4,7 @@
 
 - 源文件：`manwa.js`
 - 源列表：`index.json`
-- 版本：1.1.0
+- 版本：1.1.1
 
 ## 协议来源（静态还原，暮色 1.0.4 / mw 模块）
 
@@ -44,3 +44,11 @@ https://raw.githubusercontent.com/Walter498/manwa-source/main/manwa.js
 - 详情页返回 `updateTime`（取自 `.detail-list-title-3`，如 `2026-11-26更新`）。
 - 新增 `loadChapterMetadata`：站点只在详情页给出整本最近更新日期，章节列表本身不带日期，
   因此该日期只落在最新章节；章节标题中若显式带 `YYYY-MM-DD` 会被解析出来。
+
+## 1.1.1 变更
+
+- 修复首页/榜单封面不显示：条目图实际用 `data-home-src`（懒加载），此前只读 `data-original`/`src`，
+  取到的是 `static/images/*` 占位图或被丢弃。现按 data-home-src → data-src → data-original → src 取值。
+- 补全标签：新增「标签」分类分组，688 个站点原生标签（取自 `/booklist` 标签弹层 data-val），
+  参数 `t:<tag>`，可与分级/地区/状态/排序组合。
+- 新增 `comic.loadThumbnails`：按批（8 章/次）返回各章节首图，供详情页章节网格封面。
