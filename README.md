@@ -4,7 +4,7 @@
 
 - 源文件：`manwa.js`
 - 源列表：`index.json`
-- 版本：1.1.1
+- 版本：1.2.0
 
 ## 协议来源（静态还原，暮色 1.0.4 / mw 模块）
 
@@ -52,3 +52,11 @@ https://raw.githubusercontent.com/Walter498/manwa-source/main/manwa.js
 - 补全标签：新增「标签」分类分组，688 个站点原生标签（取自 `/booklist` 标签弹层 data-val），
   参数 `t:<tag>`，可与分级/地区/状态/排序组合。
 - 新增 `comic.loadThumbnails`：按批（8 章/次）返回各章节首图，供详情页章节网格封面。
+
+## 1.2.0 变更
+
+- 移除 `comic.loadThumbnails`：宿主会把它渲染成详情页底部的独立「預覽」区，
+  章节卡片反而空着。移除后由宿主按章节惰性调用 `loadEp` 取该话首图，封面回到章节卡片。
+- 标签组允许多选：`multiSelectGroups` 增加「标签」。站点 `/booklist` 只接受单个 `tag=`
+  （重复参数会被忽略），因此多标签在源侧做**交集**：并行取各标签列表，按 id 求交，
+  maxPage 取各列表最小值。实测 `巨乳` 45 条、`巨乳 ∩ 中文` 15 条。

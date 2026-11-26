@@ -15,7 +15,7 @@
 class Manwa extends ComicSource {
     name = "漫蛙";
     key = "manwa";
-    version = "1.1.1";
+    version = "1.2.0";
     minAppVersion = "1.0.0";
     url = "https://raw.githubusercontent.com/Walter498/manwa-source/main/manwa.js";
 
@@ -418,6 +418,48 @@ class Manwa extends ComicSource {
         }
 
         if (tag) q.tag = tag;
+
+        // 站点 /booklist 只接受一个 tag（重复 tag= 会被忽略），多选标签用交集实现
+        let tags = [];
+        for (let i = 0; i < filters.length; i++) {
+            let p2 = String(filters[i].param || "");
+            if (p2.indexOf("t:") === 0) {
+                let t2 = p2.substring(2);
+                if (t2 && tags.indexOf(t2) < 0) tags.push(t2);
+            }
+        }
+        if (tags.length > 1) {
+            let pages = await Promise.all(tags.map((t2) => {
+                let kv2 = [];
+                let keys2 = ["page", "gender", "area", "end", "sort"];
+                for (let j = 0; j < keys2.length; j++) {
+                    let k2 = keys2[j];
+                    if (q[k2] !== undefined && q[k2] !== "" && q[k2] !== null) kv2.push(k2 + "=" + encodeURIComponent(q[k2]));
+                }
+                kv2.push("tag=" + encodeURIComponent(t2));
+                return Manwa.get("/booklist?" + kv2.join("&")).then((body) => ({
+                    comics: Manwa.parseList(body),
+                    maxPage: Manwa.maxPage(body),
+                }));
+            }));
+            let first = pages[0].comics;
+            let sets = pages.map((pp) => {
+                let m2 = {};
+                for (let i2 = 0; i2 < pp.comics.length; i2++) m2[pp.comics[i2].id] = 1;
+                return m2;
+            });
+            let inter = [];
+            for (let i2 = 0; i2 < first.length; i2++) {
+                let id2 = first[i2].id;
+                let inAll = true;
+                for (let j2 = 0; j2 < sets.length; j2++) if (!sets[j2][id2]) { inAll = false; break; }
+                if (inAll) inter.push(first[i2]);
+            }
+            let maxP = pages[0].maxPage;
+            for (let j2 = 1; j2 < pages.length; j2++) if (pages[j2].maxPage < maxP) maxP = pages[j2].maxPage;
+            return { comics: inter, maxPage: maxP };
+        }
+
         let kv = [];
         let keys = ["page", "gender", "area", "end", "sort", "tag"];
         for (let i = 0; i < keys.length; i++) {
@@ -444,7 +486,7 @@ class Manwa extends ComicSource {
                 let page = request && request.page ? request.page : 1;
                 return await Manwa.loadByFilters(filters, page);
             },
-            multiSelectGroups: ["分级", "地区", "状态", "排序", "专区"],
+            multiSelectGroups: ["分级", "地区", "状态", "排序", "专区", "标签"],
             optionList: [],
         };
     }
@@ -557,53 +599,6 @@ class Manwa extends ComicSource {
                     };
                 }
                 return cfg;
-            },
-
-            /** 章节首图缩略图（Preview 区 / 章节网格） */
-            loadThumbnails: async (id, next) => {
-                let body = await Manwa.get("/book/" + id);
-                let cover = "";
-                let coverBlock = /<div class="detail-main-cover"[\s\S]{0,400}?<img[^>]*>/.exec(body);
-                if (coverBlock) {
-                    let im = /<img[^>]*>/.exec(coverBlock[0]);
-                    if (im) cover = Manwa.abs(Manwa.attr(im[0], "data-original") || Manwa.attr(im[0], "src"));
-                }
-                let chapBlock = /<ul[^>]*class="[^"]*detail-list-select[^"]*"[^>]*>([\s\S]*?)<\/ul>/.exec(body);
-                let chapHtml = chapBlock ? chapBlock[1] : "";
-                let ids = [];
-                let cre = /<a\s+href="\/chapter\/(\d+)"/g;
-                let m;
-                while ((m = cre.exec(chapHtml)) !== null) {
-                    if (ids.indexOf(m[1]) < 0) ids.push(m[1]);
-                }
-                let start = next ? parseInt(next, 10) : 0;
-                if (isNaN(start) || start < 0) start = 0;
-                let batch = 8;
-                let slice = ids.slice(start, start + batch);
-                if (!slice.length) return { thumbnails: [], next: null };
-                let thumbs = await Promise.all(slice.map(async (cid) => {
-                    try {
-                        let page = await Manwa.get("/chapter/" + cid, {
-                            "Referer": Manwa.base() + "/book/" + id,
-                        });
-                        let imgs = [];
-                        let re = /<img[^>]*>/g;
-                        let mm;
-                        while ((mm = re.exec(page)) !== null) {
-                            let u = Manwa.attr(mm[0], "data-r-src") || Manwa.attr(mm[0], "data-original");
-                            if (!u || u.indexOf("/static/images/") >= 0) continue;
-                            imgs.push(u);
-                        }
-                        return imgs.length ? imgs[0] : cover;
-                    } catch (_) {
-                        return cover;
-                    }
-                }));
-                let end = start + batch;
-                return {
-                    thumbnails: thumbs,
-                    next: end < ids.length ? String(end) : null,
-                };
             },
 
             /** 详情页评论（漫蛙站点评论区） */
