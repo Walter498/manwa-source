@@ -9,15 +9,13 @@
  *   - 详情    /book/<bookId>      （.detail-main-info-* / ul.detail-list-select）
  *   - 章节    /chapter/<chapterId>（.img-content img[data-r-src]）
  *   - 图片    AES-128-CBC，key=iv="my2ecret782ecret"（见 decrypt_image_byte.dart: /module/mw 分支）
- *   - 筛选值  gender:-1 全部/2 一般向/0 BL/1 禁漫/3 TL/4 GL
- *             area: "" 全部/2 韩国/3 日漫/4 国漫/5 台漫/6 其他/1 未分类
- *             end:  "" 全部/2 连载中/1 完结
- *             sort: -1 最新/0 最旧/1 收藏/2 新漫
+ *   - 评论    /commentmore?comment_id=&chapter_id=&book_id=&sort=&page=（comment.js: getMoreComment）
+ *   - 更新    .detail-list-title-3 形如 "2026-11-26更新"
  */
 class Manwa extends ComicSource {
     name = "漫蛙";
     key = "manwa";
-    version = "1.0.3";
+    version = "1.1.0";
     minAppVersion = "1.0.0";
     url = "https://raw.githubusercontent.com/Walter498/manwa-source/main/manwa.js";
 
@@ -28,11 +26,23 @@ class Manwa extends ComicSource {
     static _host = null;
 
     settings = {
-        mirror: {
-            title: "镜像域名（留空自动探测）",
-            type: "input",
-            placeholder: "https://manwa.me",
-            default: "",
+        commentSort: {
+            title: "章节评论排序",
+            type: "select",
+            options: [
+                { value: "1", text: "最新" },
+                { value: "2", text: "最热" },
+            ],
+            default: "1",
+        },
+        chapterComments: {
+            title: "阅读器显示章节评论",
+            type: "select",
+            options: [
+                { value: "on", text: "显示" },
+                { value: "off", text: "关闭" },
+            ],
+            default: "on",
         },
     };
 
@@ -46,10 +56,6 @@ class Manwa extends ComicSource {
 
     static candidates() {
         let list = [];
-        try {
-            let custom = (this.loadSetting("mirror") || "").trim();
-            if (custom) list.push(custom.replace(/\/+$/, ""));
-        } catch (_) {}
         if (Manwa._host) list.push(Manwa._host);
         for (let i = 0; i < Manwa.hosts.length; i++) list.push(Manwa.hosts[i]);
         let out = [];
@@ -79,12 +85,16 @@ class Manwa extends ComicSource {
         throw err || new Error("漫蛙站点不可达");
     }
 
+    static base() {
+        return Manwa._host || Manwa.hosts[0];
+    }
+
     static abs(url) {
         if (!url) return "";
         let u = String(url).trim();
         if (u.indexOf("//") === 0) return "https:" + u;
         if (u.indexOf("http") === 0) return u;
-        let host = Manwa._host || Manwa.hosts[0];
+        let host = Manwa.base();
         if (u.charAt(0) === "/") return host + u;
         return host + "/" + u;
     }
@@ -95,7 +105,7 @@ class Manwa extends ComicSource {
             amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " ",
             middot: "·", hellip: "…", zwnj: "", zwj: "", mdash: "—",
             ndash: "–", ldquo: "“", rdquo: "”", lsquo: "‘", rsquo: "’",
-            times: "×", copy: "©", reg: "®", deg: "°", gt2: ">",
+            times: "×", copy: "©", reg: "®", deg: "°",
         };
         return String(s)
             .replace(/&#x([0-9a-fA-F]+);/g, (m, h) => String.fromCharCode(parseInt(h, 16)))
@@ -190,6 +200,67 @@ class Manwa extends ComicSource {
             if (title && comics.length) parts.push({ title: title, comics: comics });
         }
         return parts;
+    }
+
+    /** 详情页 "2026-11-26更新" */
+    static bookUpdateTime(html) {
+        let m = /<span[^>]*class="[^"]*detail-list-title-3[^"]*"[^>]*>([\s\S]*?)<\/span>/.exec(html);
+        if (!m) return "";
+        let text = Manwa.decode(m[1]);
+        let d = /(\d{4}-\d{2}-\d{2})/.exec(text);
+        return d ? d[1] : text.replace(/更新/g, "").trim();
+    }
+
+    /** 评论列表 JSON → Comment[] */
+    static parseComments(body, requestPage) {
+        let data = null;
+        try {
+            data = JSON.parse(body);
+        } catch (e) {
+            return { comments: [], maxPage: requestPage };
+        }
+        let list = data && data.list ? data.list : [];
+        let comments = [];
+        for (let i = 0; i < list.length; i++) {
+            let item = list[i];
+            if (item.is_black === 1) continue;
+            let name = item.nick_name ? item.nick_name : (item.username || "");
+            let avatar = item.cover ? item.cover : "";
+            if (!avatar && item.user && item.user.avatar) avatar = item.user.avatar;
+            let content = item.content || "";
+            if (item.chapter_name) content += '<br/><span style="font-size:12px">— ' + item.chapter_name + "</span>";
+            let reply = typeof item.reply_count === "number" ? item.reply_count : 0;
+            comments.push(new Comment({
+                userName: name,
+                avatar: avatar ? Manwa.abs(avatar) : undefined,
+                content: content,
+                time: item.date || item.create_time || "",
+                replyCount: reply,
+                id: item.id ? String(item.id) : undefined,
+                isLiked: item.liked === 1,
+                score: typeof item.vote_like === "number" ? item.vote_like : undefined,
+                voteStatus: item.liked === 1 ? 1 : (item.disliked === 1 ? -1 : 0),
+            }));
+        }
+        let maxPage = list.length >= 5 ? requestPage + 1 : requestPage;
+        return { comments: comments, maxPage: maxPage };
+    }
+
+    commentSort() {
+        try {
+            let v = this.loadSetting("commentSort");
+            return v === "2" ? "2" : "1";
+        } catch (_) {
+            return "1";
+        }
+    }
+
+    chapterCommentsOn() {
+        try {
+            return this.loadSetting("chapterComments") !== "off";
+        } catch (_) {
+            return true;
+        }
     }
 
     get explore() {
@@ -295,39 +366,75 @@ class Manwa extends ComicSource {
         return kv.join("&");
     }
 
+    /** 把一组过滤条件（可来自多个分组）合并成一次 /booklist 请求 */
+    static async loadByFilters(filters, page) {
+        let q = { page: String(page || 1) };
+        let tag = "";
+        let section = "";
+        let rank = "";
+        for (let i = 0; i < filters.length; i++) {
+            let p = String(filters[i].param || "");
+            if (!p) continue;
+            if (p.indexOf("sec:") === 0) section = decodeURIComponent(p.substring(4));
+            else if (p.indexOf("rank:") === 0) rank = p.substring(5);
+            else if (p.indexOf("t:") === 0) tag = p.substring(2);
+            else if (p.indexOf("g:") === 0) q.gender = p.substring(2);
+            else if (p.indexOf("a:") === 0) q.area = p.substring(2);
+            else if (p.indexOf("e:") === 0) q.end = p.substring(2);
+            else if (p.indexOf("s:") === 0) q.sort = p.substring(2);
+        }
+
+        if (rank) {
+            let body = await Manwa.get("/rank");
+            let which = rank === "end" ? "3" : (rank === "new" ? "1" : "2");
+            let seg = new RegExp("<ul class=\"rank-list\" id=\"rankList_" + which + "\"[\\s\\S]*?</ul>").exec(body);
+            return { comics: Manwa.parseList(seg ? seg[0] : body), maxPage: 1 };
+        }
+
+        if (section) {
+            let home = await Manwa.get("/");
+            let sections = Manwa.parseSections(home);
+            for (let i = 0; i < sections.length; i++) {
+                if (sections[i].title === section) return { comics: sections[i].comics, maxPage: 1 };
+            }
+            if (section === "完结优选") {
+                let body = await Manwa.get("/booklist?page=" + (page || 1) + "&end=1&sort=1");
+                return { comics: Manwa.parseList(body), maxPage: Manwa.maxPage(body) };
+            }
+            let tagMap = { "女主逆袭": "大女主", "悬疑系列": "悬疑" };
+            let t = tagMap[section] || section;
+            let body = await Manwa.get("/booklist?page=" + (page || 1) + "&tag=" + encodeURIComponent(t));
+            return { comics: Manwa.parseList(body), maxPage: Manwa.maxPage(body) };
+        }
+
+        if (tag) q.tag = tag;
+        let kv = [];
+        let keys = ["page", "gender", "area", "end", "sort", "tag"];
+        for (let i = 0; i < keys.length; i++) {
+            let k = keys[i];
+            if (q[k] !== undefined && q[k] !== "" && q[k] !== null) kv.push(k + "=" + encodeURIComponent(q[k]));
+        }
+        let body = await Manwa.get("/booklist?" + kv.join("&"));
+        return { comics: Manwa.parseList(body), maxPage: Manwa.maxPage(body) };
+    }
+
     get categoryComics() {
         return {
             load: async (category, param, options, page) => {
                 let p = String(param || "");
-                if (p.indexOf("rank:") === 0) {
-                    let body = await Manwa.get("/rank");
-                    let which = p.substring(5) === "end" ? "3" : (p.substring(5) === "new" ? "1" : "2");
-                    let seg = new RegExp("<ul class=\"rank-list\" id=\"rankList_" + which + "\"[\\s\\S]*?</ul>").exec(body);
-                    let comics = Manwa.parseList(seg ? seg[0] : body);
-                    return { comics: comics, maxPage: 1 };
-                }
-                if (p.indexOf("sec:") === 0) {
-                    let want = decodeURIComponent(p.substring(4));
-                    let home = await Manwa.get("/");
-                    let sections = Manwa.parseSections(home);
-                    let picked = null;
-                    for (let i = 0; i < sections.length; i++) {
-                        if (sections[i].title === want) { picked = sections[i]; break; }
-                    }
-                    if (picked) return { comics: picked.comics, maxPage: 1 };
-                    let tagMap = { "女主逆袭": "大女主", "悬疑系列": "悬疑", "完结优选": "" };
-                    if (want === "完结优选") {
-                        let body = await Manwa.get("/booklist?page=" + (page || 1) + "&end=1&sort=1");
-                        return { comics: Manwa.parseList(body), maxPage: Manwa.maxPage(body) };
-                    }
-                    let tag = tagMap[want] || want;
-                    let body = await Manwa.get("/booklist?page=" + (page || 1) + "&tag=" + encodeURIComponent(tag));
-                    return { comics: Manwa.parseList(body), maxPage: Manwa.maxPage(body) };
+                if (p.indexOf("rank:") === 0 || p.indexOf("sec:") === 0) {
+                    return await Manwa.loadByFilters([{ param: p }], page);
                 }
                 let qs = Manwa.queryFrom(param, options, page);
                 let body = await Manwa.get("/booklist?" + qs);
                 return { comics: Manwa.parseList(body), maxPage: Manwa.maxPage(body) };
             },
+            loadWithFilters: async (request) => {
+                let filters = request && request.filters ? request.filters : [];
+                let page = request && request.page ? request.page : 1;
+                return await Manwa.loadByFilters(filters, page);
+            },
+            multiSelectGroups: ["分级", "地区", "状态", "排序", "专区"],
             optionList: [],
         };
     }
@@ -365,7 +472,6 @@ class Manwa extends ComicSource {
 
                 let tags = {};
                 let rows = body.match(/<p class="detail-main-info-author"[\s\S]*?<\/p>/g) || [];
-                let status = "";
                 for (let i = 0; i < rows.length; i++) {
                     let row = rows[i];
                     let fm = /<span class="detail-main-info-author-field"[^>]*>([\s\S]*?)<\/span>/.exec(row);
@@ -377,12 +483,8 @@ class Manwa extends ComicSource {
                     if (label === "作者") tags["作者"] = [value];
                     else if (label === "地区") tags["地区"] = [value];
                     else if (label === "类别") tags["类别"] = [value];
-                    else if (label === "更新状态") {
-                        status = value;
-                        tags["状态"] = [value];
-                    } else if (label === "最新章节") {
-                        tags["最新章节"] = [value];
-                    }
+                    else if (label === "更新状态") tags["状态"] = [value];
+                    else if (label === "最新章节") tags["最新章节"] = [value];
                 }
 
                 let chapters = {};
@@ -406,14 +508,14 @@ class Manwa extends ComicSource {
                     description: desc,
                     tags: tags,
                     chapters: chapters,
-                    status: status,
-                    url: (Manwa._host || Manwa.hosts[0]) + "/book/" + id,
+                    updateTime: Manwa.bookUpdateTime(body),
+                    url: Manwa.base() + "/book/" + id,
                 });
             },
 
             loadEp: async (comicId, epId) => {
                 let body = await Manwa.get("/chapter/" + epId, {
-                    "Referer": (Manwa._host || Manwa.hosts[0]) + "/book/" + comicId,
+                    "Referer": Manwa.base() + "/book/" + comicId,
                 });
                 let imgs = [];
                 let re = /<img[^>]*>/g;
@@ -434,7 +536,7 @@ class Manwa extends ComicSource {
                 let cfg = {
                     headers: {
                         "User-Agent": Manwa.ua,
-                        "Referer": (Manwa._host || Manwa.hosts[0]) + "/",
+                        "Referer": Manwa.base() + "/",
                         "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
                     },
                 };
@@ -445,6 +547,68 @@ class Manwa extends ComicSource {
                     };
                 }
                 return cfg;
+            },
+
+            /** 详情页评论（漫蛙站点评论区） */
+            loadComments: async (comicId, subId, page, replyTo) => {
+                let p = Math.max(1, page || 1);
+                let sort = this.commentSort ? this.commentSort() : "1";
+                let url = "/commentmore?comment_id=" + (replyTo ? replyTo : 0) +
+                    "&chapter_id=&book_id=" + encodeURIComponent(comicId) +
+                    "&sort=" + sort + "&page=" + (p - 1);
+                let body = await Manwa.get(url, { "Referer": Manwa.base() + "/book/" + comicId });
+                return Manwa.parseComments(body, p);
+            },
+
+            /** 阅读器内章节评论 */
+            loadChapterComments: async (comicId, epId, page, replyTo) => {
+                if (!this.chapterCommentsOn || !this.chapterCommentsOn()) {
+                    return { comments: [], maxPage: 1 };
+                }
+                let p = Math.max(1, page || 1);
+                let sort = this.commentSort ? this.commentSort() : "1";
+                let url = "/commentmore?comment_id=" + (replyTo ? replyTo : 0) +
+                    "&chapter_id=" + encodeURIComponent(epId) +
+                    "&book_id=" + encodeURIComponent(comicId) +
+                    "&sort=" + sort + "&page=" + (p - 1);
+                let body = await Manwa.get(url, { "Referer": Manwa.base() + "/chapter/" + epId });
+                return Manwa.parseComments(body, p);
+            },
+
+            /**
+             * 章节日期。
+             * 漫蛙只在详情页给出整本的最近更新时间（.detail-list-title-3，
+             * 例 "2026-11-26更新"），章节列表本身不带日期，因此这里把该日期
+             * 赋给最新章节，并从章节标题中解析形如 2026-01-02 的日期。
+             */
+            loadChapterMetadata: async (id, chapterIds) => {
+                let result = {};
+                let ids = chapterIds || [];
+                                for (let i = 0; i < ids.length; i++) {
+                    let name = String(ids[i]);
+                    let m = /(20\d{2})-(\d{2})-(\d{2})/.exec(name);
+                    if (m) {
+                        result[name] = { updateTime: m[1] + "-" + m[2] + "-" + m[3] };
+                    }
+                }
+                let body = await Manwa.get("/book/" + id);
+                let date = Manwa.bookUpdateTime(body);
+                let chapBlock = /<ul[^>]*class="[^"]*detail-list-select[^"]*"[^>]*>([\s\S]*?)<\/ul>/.exec(body);
+                let chapHtml = chapBlock ? chapBlock[1] : "";
+                let cre = /<a\s+href="\/chapter\/(\d+)"([^>]*)>/g;
+                let cm;
+                let lastId = "";
+                let names = {};
+                while ((cm = cre.exec(chapHtml)) !== null) {
+                    lastId = cm[1];
+                    names[cm[1]] = Manwa.attr(cm[2], "title");
+                }
+                for (let key in names) {
+                    let m = /(20\d{2})-(\d{2})-(\d{2})/.exec(names[key] || "");
+                    if (m && !result[key]) result[key] = { updateTime: m[1] + "-" + m[2] + "-" + m[3] };
+                }
+                if (date && lastId) result[lastId] = { updateTime: date };
+                return result;
             },
         };
     }

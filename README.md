@@ -4,7 +4,7 @@
 
 - 源文件：`manwa.js`
 - 源列表：`index.json`
-- 版本：1.0.3
+- 版本：1.1.0
 
 ## 协议来源（静态还原，暮色 1.0.4 / mw 模块）
 
@@ -33,3 +33,14 @@ https://raw.githubusercontent.com/Walter498/manwa-source/main/index.json
 ```
 https://raw.githubusercontent.com/Walter498/manwa-source/main/manwa.js
 ```
+
+## 1.1.0 变更
+
+- 分类页支持多条件组合：新增 `categoryComics.loadWithFilters` 与 `multiSelectGroups`，
+  解决「此來源未提供多條件分類查詢，請一次選擇一個條件」。
+- 移除源设置里的「镜像域名」，改为内置域名自动探测。
+- 新增评论：`loadComments` / `loadChapterComments`，命中站点 `/commentmore` 接口；
+  设置项为「章节评论排序（最新/最热）」与「阅读器显示章节评论」。
+- 详情页返回 `updateTime`（取自 `.detail-list-title-3`，如 `2026-11-26更新`）。
+- 新增 `loadChapterMetadata`：站点只在详情页给出整本最近更新日期，章节列表本身不带日期，
+  因此该日期只落在最新章节；章节标题中若显式带 `YYYY-MM-DD` 会被解析出来。
