@@ -4,7 +4,7 @@
 
 - 源文件：`manwa.js`
 - 源列表：`index.json`
-- 版本：1.2.0
+- 版本：1.3.0
 
 ## 协议来源（静态还原，暮色 1.0.4 / mw 模块）
 
@@ -39,8 +39,6 @@ https://raw.githubusercontent.com/Walter498/manwa-source/main/manwa.js
 - 分类页支持多条件组合：新增 `categoryComics.loadWithFilters` 与 `multiSelectGroups`，
   解决「此來源未提供多條件分類查詢，請一次選擇一個條件」。
 - 移除源设置里的「镜像域名」，改为内置域名自动探测。
-- 新增评论：`loadComments` / `loadChapterComments`，命中站点 `/commentmore` 接口；
-  设置项为「章节评论排序（最新/最热）」与「阅读器显示章节评论」。
 - 详情页返回 `updateTime`（取自 `.detail-list-title-3`，如 `2026-11-26更新`）。
 - 新增 `loadChapterMetadata`：站点只在详情页给出整本最近更新日期，章节列表本身不带日期，
   因此该日期只落在最新章节；章节标题中若显式带 `YYYY-MM-DD` 会被解析出来。
@@ -60,3 +58,9 @@ https://raw.githubusercontent.com/Walter498/manwa-source/main/manwa.js
 - 标签组允许多选：`multiSelectGroups` 增加「标签」。站点 `/booklist` 只接受单个 `tag=`
   （重复参数会被忽略），因此多标签在源侧做**交集**：并行取各标签列表，按 id 求交，
   maxPage 取各列表最小值。实测 `巨乳` 45 条、`巨乳 ∩ 中文` 15 条。
+
+## 1.3.0 变更
+
+- 移除评论功能：删除 `loadComments` / `loadChapterComments` 与「章节评论排序」「阅读器显示章节评论」两个设置项。
+  漫蛙评论区自 2026 年起已由站方整体关闭（`/commentmore` 只回管理员公告），保留入口只剩公告，遂移除。
+- 源设置页不再有设置项（此前「镜像域名」已删）。
