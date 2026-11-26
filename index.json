@@ -1,0 +1,8 @@
+[
+  {
+    "name": "漫蛙",
+    "url": "https://raw.githubusercontent.com/Walter498/manwa-source/main/manwa.js",
+    "version": "1.0.3",
+    "description": "漫蛙漫画独立源（HTML + AES-128-CBC 图片解密）"
+  }
+]
